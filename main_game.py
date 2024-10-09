@@ -2,191 +2,293 @@ from geopy import distance
 import random
 
 from database_connection import connection
-'''
-create a file called "database_connection.py" in the same folder as this file 
-and add the following with your database information
----------------------------------------------------------------
-import mysql.connector
 
-connection = mysql.connector.connect(
-         host='127.0.0.1',
-         port='3306',
-         database='',
-         user='',
-         password='',
-         autocommit=True
-         )
----------------------------------------------------------------
-'''
+def welcome():
+    # instead of asking to start new game or load game, only ask for username and check if it's already used
+    print(" _   _               _ _        _____ _ _       _     _   \n| \ | | ___  _ __ __| (_) ___  |  ___| (_) __ _| |__ | |_ \n|  \| |/ _ \| '__/ _` | |/ __| | |_  | | |/ _` | '_ \| __|\n| |\  | (_) | | | (_| | | (__  |  _| | | | (_| | | | | |_ \n|_|_\_|\___/|_|  \__,_|_|\___| |_|   |_|_|\__, |_| |_|\__|\n/ ___|(_)_ __ ___  _   _| | __ _| |_ ___  |___/           \n\___ \| | '_ ` _ \| | | | |/ _` | __/ _ \| '__|           \n ___) | | | | | | | |_| | | (_| | || (_) | |              \n|____/|_|_| |_| |_|\__,_|_|\__,_|\__\___/|_|              ")
+    print("Welcome to Nordic Flight Simulator! This beta version does not represent the final quality.")
+    play_choice = input("Enter your username: ")
+    return play_choice
 
-def rng_seed():
-    return random.randint(1, 10)
-
-def airport_location(icao):
-    sql = f"select name, latitude_deg, longitude_deg from airport where ident = %s and iso_country = 'FI'"
+def select_country():
+    sql = f"select name from country where name in {'norway','finland','sweden','denmark'}"
     cursor = connection.cursor()
-    cursor.execute(sql, (icao,))
+    cursor.execute(sql)
     result = cursor.fetchall()
-    return result[0]
-    # fetches airport name and location coordinates with icao code into a tuple inside a list with one item
-    # so we return the tuple from the list
-    # ONLY AIRPORTS IN FINLAND !!!!
-
-def distance_check(icao):
-    sql = f"select ident, name, type from airport where iso_country = 'FI' and type in ('small_airport','medium_airport', 'large_airport')"
-    # take all *_airport in finland
-    current_location = airport_location(icao)
-    cursor = connection.cursor()
-    cursor.execute(sql)
-    all_airports = cursor.fetchall()
-    # take note of current location and fetch EVERY *_airport
-
-    possible_airports = []
-    # create empty list for all possible airports
-
-    for possible_airport in all_airports:
-        test_location = airport_location(possible_airport[0])
-        test_location_coordinates = test_location[1], test_location[2]
-        current_location_coordinates = current_location[1], current_location[2]
-        if distance.distance(current_location_coordinates, test_location_coordinates).kilometers < possible_flight:
-            possible_airports.append(possible_airport)
-    # i changed location to also return the name so it broke a bunch of stuff. this works, though
-
-    return possible_airports
-
-def fly(target_airport):
-    new_location = airport_location(target_airport)
-    if new_location == []:
-        print("invalid icao code")
-        return
-    # check if target airport exists
-
-    new_location_coords = new_location[1], new_location[2]
-    current_location_coords = current_location[1], current_location[2]
-    # i don't know how to us geopy the "right way" so just convert tuple into new tuple. probably bad
-
-    new_distance = distance.distance(new_location_coords, current_location_coords).km
-    print(current_location_coords)
-    if new_distance < possible_flight:
-        return new_location, new_distance
-    # make sure flight is actually possible with distance limit
-
-    else:
-        return "too far"
-    # flight not possible!
-
-def choose_delivery_task():
-    sql = f"select ident, name, type from airport where iso_country = 'FI' and type in ('small_airport','medium_airport', 'large_airport')"
-    # take all *_airport in finland
-    cursor = connection.cursor()
-    cursor.execute(sql)
-    all_airports = cursor.fetchall()
-    # return all those airports to list
-    random.shuffle(all_airports)
-    random_airport = all_airports[0]
-    if random_airport == current_location:
-        print("oops")
-        return
-        # temporary, happens when delivery task is in same airport as the player is in
-    else:
-        return random_airport
-
-def complete_delivery():
-    print("delivery complete!")
-    return
-
-def start_delivery_task():
-    print(f"new delivery task! deliver package to {delivery_target_airport}")
+    country_list = []
+    for i in result:
+        print(i[0])
+    for country in result:
+        country_list.append(country[0].lower())
     while True:
-        user_accept_delivery_task = input("accept task? yes/no\n")
-        if user_accept_delivery_task == "yes":
-            print("delivery task accepted")
-            return True
-        elif user_accept_delivery_task == "no":
-            print("delivery task not accepted")
-            return False
+        country = input("Please select a country:").lower()
+        if country in country_list:
+            return country
+        else:
+            print("invalid country")
+
+def select_airport(country): #retreive all the available airports in the country the player located
+    sql = f"select name from airport where iso_country = (select iso_country from country where name = '{country}' and type in ('large_airport','medium_airport'))"
+    cursor = connection.cursor()
+    cursor.execute(sql)
+    result = cursor.fetchall()
+    num = 1
+    for i in result:
+        print(f'[{num}]: {i[0]}')
+        num += 1
+    return airport_selector_code_with_int_and_input(result)
+
+def airport_selector_code_with_int_and_input(result):
+    # instead of doing int(input, use this function to select airport while making sure the code does not error out
+    while True:
+        airport_str = input("Please select an airport:")
+        if airport_str.isnumeric():
+            airport_int = int(airport_str)
+            if 0 < airport_int <= len(result):
+                airport = result[airport_int - 1][0]
+                return airport
+            else:
+                print("invalid input")
         else:
             print("invalid input")
 
+def select_airport_in_game(country, location, fuel): #retreive all the available airports in the country the player located
+    # but do it while in game, showing the needed fuel point count to fly to that airport
+    sql = f"select name from airport where iso_country = (select iso_country from country where name = '{country}' and type in ('large_airport','medium_airport'))"
+    cursor = connection.cursor()
+    cursor.execute(sql)
+    result = cursor.fetchall()
+    num = 1
+    new_airport_list = []
+    for thing in result:
+        new_airport_list.append(thing[0])
+    for airport in new_airport_list:
+        airport_distance = distance_calculator(location, airport)
+        need_fuel_point = calculate_fuel(airport_distance)
+        print(f'[{num}]: {airport} (Needed fuel points: {need_fuel_point})')
+        num += 1
+    print(f"You have {fuel} fuel points.")
+    return airport_selector_code_with_int_and_input(result)
 
-possible_flight = 1000
-current_day = 0
-total_distance = 0
-live = False
-on_delivery_task = False
-current_location = []
-airport = []
-delivery_target_airport = []
-# create variables and lists, possibly better ways of doing it all
+def calculate_fuel(airport_distance):
+    fuel_reduction = 1 - (check_fuel_reduction(name) / 100)
+    need_fuel_point = airport_distance * fuel_reduction
+    return int(need_fuel_point / 100)
 
-while not live:
-    airport = input("icao of airport? ").upper()
-    current_location = airport_location(airport)
-    print(current_location)
-    # temporary
-    if current_location == []:
-        print("invalid icao")
+def create_name():
+    name = input("Please input the name you want to appear in the game:")
+    repeat = check_name_repeat(name)
+    while repeat != 0:
+        name = input("This username has been taken. Please try again.:")
+        repeat = check_name_repeat(name)
+    return name
+
+def check_name_repeat(name): #check if the name has already been taken
+    sql = f"select player_name from player"
+    cursor = connection.cursor(dictionary=True)
+    cursor.execute(sql)
+    result = cursor.fetchall()
+    repeat = 0
+    for i in result:
+        if name in i.values():
+            repeat = 1
+    return repeat
+
+def create_new_player(name,money,fuel):
+    sql = f"INSERT INTO player (player_name, money, fuel_points) VALUES ('{name}',{money},{fuel})"
+    cursor = connection.cursor(dictionary=True)
+    cursor.execute(sql)
+
+def distance_calculator(departure,arrival): #calculate and return the distance between the two airport
+    departure = get_location_by_name(departure)
+    arrival = get_location_by_name(arrival)
+    airport_distance = int(distance.distance(departure,arrival).km)
+    return airport_distance
+
+def get_location_by_name(airport_name):
+  sql= f"SELECT latitude_deg,longitude_deg FROM airport where name = '{airport_name}'"
+  cursor = connection.cursor(dictionary=True)
+  cursor.execute(sql)
+  result = cursor.fetchone()
+  latitude = result['latitude_deg']
+  longitude = result['longitude_deg']
+  airport = (latitude, longitude)
+  return airport
+
+def load_save(name):
+    # using the load_save function to both load old game data and create new save file based on if name is in database
+    sql = f"SELECT * FROM player where player_name = '{name}'"
+    cursor = connection.cursor(dictionary=True)
+    cursor.execute(sql)
+    result = cursor.fetchone()
+    if result is None:
+        print('Save file not found! Starting new game.')
+        print(f'Hi {name}, now you will choose your initial starting point.')
+        start_country = select_country()
+        start_airport = select_airport(start_country)
+        money = 600
+        fuel = 0
+        create_new_player(name, money, fuel)
+        print('Great! Now you are here. You can choose the thing you want to do by input the number.')
+        start_game(money, fuel, start_airport, name)
     else:
-        live = True
-# before actual gameplay starts, choose starting airport and check if it's real
+        print('save file found!')
+        print(result)
+        money = result['money']
+        fuel = result['fuel_points']
+        location = result['location']
+        start_game(money, fuel, location, name)
 
-while live:
-    if not on_delivery_task:
-        delivery_target = choose_delivery_task()
-        if delivery_target == []:
-            print("target same as current airport")
-        delivery_target_airport = delivery_target[0]
+def start_game(money,fuel,location,name): #The main game program
+    choice = input('\n[1]Start transport mission\n[2]Upgrading aircraft\n[3]Save game\n[4]Check your status\nChoose Things to Do:')
+    if choice == '1':
+        money,total_value = purchase_goods(money,location,name)
+        print('The purchase of goods has been completed!')
+        start_flight(money, fuel, location, name, total_value)
 
-    if delivery_target_airport == airport:
-        complete_delivery()
-        on_delivery_task = False
-    # check if at delivery target
+    elif choice == '2':
+        money = purchase_upgrade(money,name)
 
-    print(f"you are at {current_location[0]} ({airport})")
-    print(f"you have flown {total_distance:.2f} km")
-    print(f"you are on day {current_day}")
+    elif choice == '3':
+        save_game(money, fuel, location, name)
 
-    if rng_seed() > 8 and not on_delivery_task:
-        delivery_task_start = start_delivery_task()
-        if delivery_task_start:
-            on_delivery_task = True
-    # rng_seed() returns an integer between 1 and 10
-    # if that is 9 or 10 (20% chance) give player ability to start delivery task
+    elif choice == '4':
+        print(f'name:{name}; money:{money}; fuel:{fuel}; current location:{location}')
 
-    if on_delivery_task:
-        print(f"you have a delivery to {delivery_target_airport}")
+    start_game(money, fuel, location, name)
 
-    action = input("What do you want to do? Options: fly, check, quit, wait ")
+def save_game(money, fuel, location, name): #save the game data to the database
+    sql = f"update player set money = {money}, fuel_points = {fuel}, location = '{location}' where player_name = '{name}'"
+    cursor = connection.cursor()
+    cursor.execute(sql)
+    print('\nGame has been saved!')
 
-    if action == "fly":
-        new_airport = input("icao of airport? ").upper()
-        new_flight = fly(new_airport)
-        # start flight operation. returns (location tuple (name, coordinates) and distance) in a tuple
-
-        if new_flight == None:
-            print("invalid icao code")
-        # target airport does not exist
-        elif new_flight == "too far":
-            print("distance too long")
-        # target airport too far
-
+def start_flight(money,fuel,location,name,total_value): #Move to another airport and calculate the earned money
+    num = random.randint(1,6)
+    if(num == 1 or num == 6):
+        bonus = 10
+    else: bonus = num
+    print(f'\nRolled the dice, the number is {num}, you got {bonus} fuel points.')
+    print('\nPlease select your flight destination.')
+    fuel += bonus
+    enough_fuel = False
+    while not enough_fuel:
+        dest_country = select_country()
+        dest_airport = select_airport_in_game(dest_country, location, fuel)
+        airport_distance = distance_calculator(location, dest_airport)
+        need_fuel_point = calculate_fuel(airport_distance)
+        if need_fuel_point == 0:
+            need_fuel_point = 1
+        if fuel < need_fuel_point:
+            print('\nYou do not have enough fuel points!\n')
         else:
-            total_distance = new_flight[1] + total_distance
-            current_location = new_flight[0]
-            airport = new_airport
-            current_day += 1
-        # add flown distance to total, make new location the current location, and add a day to counter
+            enough_fuel = True
+    total_value = total_value * (1 + airport_distance/1000)
+    print(f'\nYou successfully reached your destination and earned {total_value:.0f}\n')
+    money += total_value
+    fuel -= need_fuel_point
+    location = dest_airport
+    start_game(money, fuel, location, name)
 
-    elif action == "check":
-        for possible_airport in distance_check(airport):
-            print(f"{possible_airport[1]}, ICAO code: {possible_airport[0]}, Type: {possible_airport[2]}")
-    # distance_check function returns list of all airports you can fly to inside "possible_flight" variable
-    # then print every possible airport inside that list
+def check_fuel_reduction(name): #check the upgrade about the fuel the player have purchased
+    sql = f"SELECT sum(fuel_reduction_percentage) FROM upgrade where upgrade_id in (select upgrade_id from player_upgrade where player_ID = '{get_player_ID(name)}')"
+    cursor = connection.cursor(dictionary=True)
+    cursor.execute(sql)
+    result = cursor.fetchone()
+    num = result['sum(fuel_reduction_percentage)']
+    if num is None:
+        num = 0
+    return float(num)
 
-    elif action == "wait":
-        current_day += 1
-        # track how many "days" have gone by
+def check_capacity_increase(name): #check the upgrade about the capacity the player have purchased
+    sql = f"SELECT sum(capacity_increase_percentage) FROM upgrade where upgrade_id in (select upgrade_id from player_upgrade where player_ID = '{get_player_ID(name)}')"
+    cursor = connection.cursor(dictionary=True)
+    cursor.execute(sql)
+    result = cursor.fetchone()
+    num = result['sum(capacity_increase_percentage)']
+    if num is None:
+        num = 0
+    return float(num)
 
-    elif action == "quit":
-        print(f"you flew {total_distance:.2f} km in {current_day} days!")
-        break
+def get_player_ID(name): #get player's ID by its name
+    sql = f"select player_id from player where player_name = '{name}'"
+    cursor = connection.cursor(dictionary=True)
+    cursor.execute(sql)
+    result = cursor.fetchone()
+    return result['player_id']
+
+def purchase_upgrade(money,name): #get the upgrade item from the database and check if any of them has been purchased
+    choice = 0
+    while choice != 'q':
+        sql = f"select * from upgrade where upgrade_ID not in (select upgrade_ID from player_upgrade where player_ID = (select player_ID from player where player_name = '{name}'))"
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        num = 1
+        for i in result:
+            if i['type'] == '1':
+                print(f'[{num}] capacity increase:{i["capacity_increase_percentage"]}; cost: {i["cost"]}')
+            elif i['type'] == '2':
+                print(f'[{num}] {i["fuel_reduction_percentage"]} percent reduction in fuel; cost: {i["cost"]}')
+            num += 1
+        choice = input('Please select the items to upgrade. Enter q to end.')
+        if choice != 'q':
+            choice = int(choice)
+            if result[choice-1]['cost'] > money:
+                print('\nYou do not have enough money!\n')
+            else:
+                money = money - result[choice-1]['cost']
+                print(f"\nPurchase successful! You have {money} money left\n")
+                sql = f"INSERT INTO player_upgrade (player_id, upgrade_id) VALUES ('{get_player_ID(name)}','{result[choice-1]['upgrade_ID']}')"
+                cursor = connection.cursor()
+                cursor.execute(sql)
+
+    return money
+
+def purchase_goods(money,location,name): #get the available goods from the database by location
+    sql = f"select * from goods where goods_id in (select goods_id from goods_in_country where iso_country = (SELECT iso_country FROM airport where name = '{location}'))"
+    cursor = connection.cursor(dictionary=True)
+    cursor.execute(sql)
+    result = cursor.fetchall()
+    num = 1
+    capacity = 100 + check_capacity_increase(name)
+    for i in result:
+        print(f'[{num}] {i["goods_name"]} weight:{i["goods_weight"]} value:{i["goods_value"]}\n')
+        num += 1
+    choice = 0
+    total_value = 0
+    while choice != 'q':
+        print(f'You have {money} money and and {capacity} storage spaces left.')
+        choice = input('Please select the items to purchase. Enter q to end.')
+        if choice.isnumeric() and choice != 'q':
+            choice = int(choice)
+            if 0 < choice <= len(result):
+                amount_str = input('Please enter the amount of goods:')
+                if amount_str.isnumeric():
+                    amount = int(amount_str)
+                    value = result[choice-1]['goods_value']
+                    weight = result[choice-1]['goods_weight']
+                    if amount * value > money:
+                        print("You don't have enough money!")
+                    elif amount * weight > capacity:
+                        print("You don’t have enough storage space!")
+                    else:
+                        total_value = amount * value + total_value
+                        money = money - amount * value
+                        capacity = capacity-weight*amount
+                        print(f'\nPurchase successful!\n')
+                else:
+                    print("invalid input")
+            else:
+                print("invalid input")
+        else:
+            print("invalid input")
+    return money, total_value
+
+def start_program():
+    # START THE GAME, also make name global
+    global name
+    name = welcome()
+    load_save(name)
+
+start_program()
