@@ -1,7 +1,15 @@
 from geopy import distance
 import random
+import mysql.connector
 
-from database_connection import connection
+connection = mysql.connector.connect(
+         host='localhost',
+         port='3306',
+         database='flight_game_final',
+         user='root',
+         password='',
+         autocommit=True
+         )
 
 def welcome():
     # instead of asking to start new game or load game, only ask for username and check if it's already used
